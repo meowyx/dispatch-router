@@ -51,12 +51,10 @@ cp .env.example .env
 cargo run
 ```
 
-- REST API: http://localhost:3000
-- Dashboard: http://localhost:3000 (serves `static/index.html`)
-- gRPC: localhost:50051
-- Metrics: http://localhost:3000/metrics
 
 ## REST API
+
+You can open another terminal and paste this commands to test, you'll see changes happening on dashboard in `http://localhost:3000/` .
 
 ```bash
 # Create a courier
