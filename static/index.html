@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dispatch Router Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    #header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+    }
+    #header h1 { font-size: 18px; font-weight: 600; }
+    #status {
+      font-size: 13px; padding: 4px 10px; border-radius: 12px;
+      background: #dc2626; color: #fff;
+    }
+    #status.connected { background: #16a34a; }
+    #main { display: flex; height: calc(100vh - 49px); }
+    #map { flex: 1; }
+    #sidebar {
+      width: 340px; background: #1e293b; border-left: 1px solid #334155;
+      overflow-y: auto; padding: 16px;
+    }
+    #sidebar h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card {
+      background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      padding: 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.5;
+    }
+    .card .label { color: #64748b; }
+    .card .value { color: #e2e8f0; font-weight: 500; }
+    .score-bar {
+      height: 6px; border-radius: 3px; background: #334155; margin-top: 4px; overflow: hidden;
+    }
+    .score-bar-fill { height: 100%; border-radius: 3px; background: #3b82f6; transition: width 0.3s; }
+    #stats { display: flex; gap: 8px; margin-bottom: 16px; }
+    .stat {
+      flex: 1; text-align: center; background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; padding: 10px 6px;
+    }
+    .stat .num { font-size: 22px; font-weight: 700; color: #3b82f6; }
+    .stat .lbl { font-size: 11px; color: #64748b; text-transform: uppercase; }
+    #events { max-height: 200px; overflow-y: auto; }
+    .event {
+      font-size: 12px; padding: 6px 0;
+      border-bottom: 1px solid #1e293b; color: #94a3b8;
+    }
+    .event:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>Dispatch Router</h1>
+  <span id="status">Disconnected</span>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+
+    <div id="stats">
+      <div class="stat">
+        <div class="num" id="courier-count">0</div>
+        <div class="lbl">Couriers</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="order-count">0</div>
+        <div class="lbl">Orders</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="assignment-count">0</div>
+        <div class="lbl">Assigned</div>
+      </div>
+    </div>
+
+    <h2>Recent Assignments</h2>
+    <div id="events"></div>
+
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const WS_URL = `ws://${window.location.host}/ws`;
+
+const map = L.map("map").setView([52.52, 13.405], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap contributors",
+  maxZoom: 19,
+}).addTo(map);
+
+const courierIcon = L.divIcon({
+  className: "",
+  html: `<div style="background:#3b82f6;width:12px;height:12px;border-radius:50%;border:2px solid #fff;"></div>`,
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+});
+
+const pickupIcon = L.divIcon({
+  className: "",
+  html: `<div style="background:#f59e0b;width:10px;height:10px;border-radius:50%;border:2px solid #fff;"></div>`,
+  iconSize: [10, 10],
+  iconAnchor: [5, 5],
+});
+
+const courierMarkers = {};
+const assignmentLines = {};
+let couriersData = {};
+
+function updateStats() {
+  document.getElementById("courier-count").textContent = Object.keys(courierMarkers).length;
+  document.getElementById("order-count").textContent = document.querySelectorAll("#events .event").length;
+  document.getElementById("assignment-count").textContent = Object.keys(assignmentLines).length;
+}
+
+function addCourierMarker(courier) {
+  if (courierMarkers[courier.id]) {
+    courierMarkers[courier.id].setLatLng([courier.location.lat, courier.location.lng]);
+    return;
+  }
+  const marker = L.marker([courier.location.lat, courier.location.lng], { icon: courierIcon })
+    .addTo(map)
+    .bindPopup(`<b>${courier.name}</b><br>Load: ${courier.current_load}/${courier.capacity}<br>Rating: ${courier.rating.toFixed(1)}<br>Status: ${courier.status}`);
+  courierMarkers[courier.id] = marker;
+  couriersData[courier.id] = courier;
+}
+
+function addAssignmentEvent(assignment) {
+  const courier = couriersData[assignment.courier_id];
+  const courierName = courier ? courier.name : assignment.courier_id.slice(0, 8);
+
+  const card = document.createElement("div");
+  card.className = "event";
+  const pct = (assignment.score * 100).toFixed(0);
+  card.innerHTML = `
+    <span class="value">${courierName}</span>
+    <span class="label"> scored ${pct}%</span><br>
+    <span class="label">D:${(assignment.score_breakdown.distance_score * 100).toFixed(0)}
+      L:${(assignment.score_breakdown.load_score * 100).toFixed(0)}
+      R:${(assignment.score_breakdown.rating_score * 100).toFixed(0)}
+      P:${(assignment.score_breakdown.priority_score * 100).toFixed(0)}</span>
+  `;
+
+  const events = document.getElementById("events");
+  events.prepend(card);
+  if (events.children.length > 50) events.lastChild.remove();
+}
+
+async function fetchInitialState() {
+  try {
+    const [couriersRes, assignmentsRes] = await Promise.all([
+      fetch(`${API}/couriers`),
+      fetch(`${API}/assignments`),
+    ]);
+
+    const couriers = await couriersRes.json();
+    const assignments = await assignmentsRes.json();
+
+    couriers.forEach(addCourierMarker);
+
+    const bounds = [];
+    couriers.forEach(c => bounds.push([c.location.lat, c.location.lng]));
+    if (bounds.length > 0) map.fitBounds(bounds, { padding: [40, 40] });
+
+    assignments.forEach(addAssignmentEvent);
+    updateStats();
+  } catch (err) {
+    console.error("failed to fetch initial state:", err);
+  }
+}
+
+function connectWebSocket() {
+  const statusEl = document.getElementById("status");
+  const ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    statusEl.textContent = "Live";
+    statusEl.className = "connected";
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = "Disconnected";
+    statusEl.className = "";
+    setTimeout(connectWebSocket, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = async (event) => {
+    try {
+      const assignment = JSON.parse(event.data);
+      addAssignmentEvent(assignment);
+
+      const res = await fetch(`${API}/couriers`);
+      const couriers = await res.json();
+      couriers.forEach(addCourierMarker);
+
+      const courier = couriersData[assignment.courier_id];
+      if (courier) {
+        const courierLatLng = [courier.location.lat, courier.location.lng];
+        if (assignmentLines[assignment.id]) {
+          map.removeLayer(assignmentLines[assignment.id]);
+        }
+        const line = L.polyline([courierLatLng, courierLatLng], {
+          color: "#3b82f6", weight: 2, opacity: 0.6, dashArray: "6 4",
+        }).addTo(map);
+        assignmentLines[assignment.id] = line;
+      }
+
+      updateStats();
+    } catch (err) {
+      console.error("ws message error:", err);
+    }
+  };
+}
+
+fetchInitialState();
+connectWebSocket();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package dispatch;
+
+service DispatchService {
+  rpc CreateCourier(CreateCourierRequest) returns (CourierResponse);
+  rpc GetCouriers(GetCouriersRequest) returns (GetCouriersResponse);
+  rpc CreateOrder(CreateOrderRequest) returns (OrderResponse);
+  rpc GetAssignments(GetAssignmentsRequest) returns (GetAssignmentsResponse);
+  rpc WatchAssignments(WatchAssignmentsRequest) returns (stream AssignmentEvent);
+}
+
+message GeoPoint {
+  double lat = 1;
+  double lng = 2;
+}
+
+message CreateCourierRequest {
+  string name = 1;
+  GeoPoint location = 2;
+  uint32 capacity = 3;
+  double rating = 4;
+}
+
+message CourierResponse {
+  string id = 1;
+  string name = 2;
+  GeoPoint location = 3;
+  uint32 capacity = 4;
+  uint32 current_load = 5;
+  string status = 6;
+  double rating = 7;
+}
+
+message GetCouriersRequest {}
+
+message GetCouriersResponse {
+  repeated CourierResponse couriers = 1;
+}
+
+message CreateOrderRequest {
+  GeoPoint pickup = 1;
+  GeoPoint dropoff = 2;
+  string priority = 3;
+}
+
+message OrderResponse {
+  string id = 1;
+  GeoPoint pickup = 2;
+  GeoPoint dropoff = 3;
+  string priority = 4;
+  string status = 5;
+}
+
+message ScoreBreakdown {
+  double distance_score = 1;
+  double load_score = 2;
+  double rating_score = 3;
+  double priority_score = 4;
+}
+
+message AssignmentEvent {
+  string id = 1;
+  string order_id = 2;
+  string courier_id = 3;
+  double score = 4;
+  ScoreBreakdown score_breakdown = 5;
+  string assigned_at = 6;
+}
+
+message GetAssignmentsRequest {}
+
+message GetAssignmentsResponse {
+  repeated AssignmentEvent assignments = 1;
+}
+
+message WatchAssignmentsRequest {}
