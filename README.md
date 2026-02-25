@@ -17,7 +17,7 @@ When an order comes in, the engine filters couriers that are `Available` and hav
 
 The highest-scoring courier gets the assignment. If no couriers are available, the order is re-queued.
 
-All state is in-memory (`DashMap`). No database required — data resets on restart.
+All state is in-memory (`DashMap`). No database required, data resets on restart (maybe you can add postgre, if you wanna improve it further)
 
 ## Architecture
 
